@@ -70,6 +70,7 @@ const Login = () => {
                                 className="input"
                                 value={formData.username}
                                 onChange={handleChange}
+                                autoComplete="username"
                                 required
                                 disabled={loggingIn}
                             />
@@ -83,6 +84,7 @@ const Login = () => {
                                     className="input pr-10"
                                     value={formData.password}
                                     onChange={handleChange}
+                                    autoComplete="current-password"
                                     required
                                     disabled={loggingIn}
                                 />

@@ -23,10 +23,21 @@ mongoose.connect(process.env.MONGODB_URI)
 
         // Create user accounts for each employee
         const employeeUsers = [];
+        let skippedWithoutIdentifier = 0;
         
         for (const emp of employees) {
-            // Create username from email (part before @)
-const username = emp.email.split('@')[0];
+            // Prefer email prefix, fallback to employeeId or _id if email is missing.
+            const emailValue = typeof emp.email === 'string' ? emp.email.trim() : '';
+            const empIdValue = typeof emp.employeeId === 'string' ? emp.employeeId.trim() : '';
+            const username = emailValue.includes('@')
+                ? emailValue.split('@')[0]
+                : (empIdValue || String(emp._id));
+
+            if (!username) {
+                skippedWithoutIdentifier += 1;
+                console.log(`⚠️ Skipped employee without usable identifier: ${emp.name}`);
+                continue;
+            }
             
             const user = new User({
                 username: username,
@@ -58,6 +69,9 @@ const username = emp.email.split('@')[0];
         console.log('━'.repeat(80));
         console.log('\n📋 Summary:');
         console.log(`Total Employee Users: ${employeeUsers.length}`);
+        if (skippedWithoutIdentifier > 0) {
+            console.log(`Skipped (missing identifier): ${skippedWithoutIdentifier}`);
+        }
         console.log('Default Password: employee123');
         console.log('First Login: Password change required\n');
         

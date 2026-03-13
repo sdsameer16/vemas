@@ -6,6 +6,7 @@ const Transaction = require('../models/Transaction');
 const MonthlyUploadLog = require('../models/MonthlyUploadLog');
 const AdjustmentHistory = require('../models/AdjustmentHistory');
 const ArchivedMonth = require('../models/ArchivedMonth');
+const BalanceSheetMonth = require('../models/BalanceSheetMonth');
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
@@ -1201,6 +1202,303 @@ const generateYearlyReport = async (req, res) => {
     }
 };
 
+// @desc    Generate Balance Sheet Report (Excel) - Month-wise summary
+// @route   GET /api/admin/reports/balance-sheet
+// @access  Private/Admin
+const generateBalanceSheetReport = async (req, res) => {
+    try {
+        const from = String(req.query.from || '').trim(); // YYYY-MM
+        const to = String(req.query.to || '').trim();     // YYYY-MM
+
+        const monthPattern = /^\d{4}-\d{2}$/;
+        if (from && !monthPattern.test(from)) {
+            return res.status(400).json({ message: 'Invalid from month. Use YYYY-MM format.' });
+        }
+        if (to && !monthPattern.test(to)) {
+            return res.status(400).json({ message: 'Invalid to month. Use YYYY-MM format.' });
+        }
+        if (from && to && from > to) {
+            return res.status(400).json({ message: 'from month cannot be greater than to month.' });
+        }
+
+        const monthQuery = {};
+        if (from || to) {
+            monthQuery.month = {};
+            if (from) monthQuery.month.$gte = from;
+            if (to) monthQuery.month.$lte = to;
+        }
+
+        const savedRows = await BalanceSheetMonth.find(monthQuery).sort({ month: 1 }).lean();
+
+        const transactions = await Transaction.find(monthQuery)
+            .select('month thriftDeduction principalRepayment loanEMI interestPayment')
+            .lean();
+
+        const enumerateMonths = (fromMonth, toMonth) => {
+            if (!fromMonth || !toMonth) return [];
+            const [fromYear, fromMon] = fromMonth.split('-').map(Number);
+            const [toYear, toMon] = toMonth.split('-').map(Number);
+            const months = [];
+            let y = fromYear;
+            let m = fromMon;
+            while (y < toYear || (y === toYear && m <= toMon)) {
+                months.push(`${y}-${String(m).padStart(2, '0')}`);
+                m += 1;
+                if (m > 12) {
+                    m = 1;
+                    y += 1;
+                }
+            }
+            return months;
+        };
+
+        const monthMap = new Map();
+        for (const row of savedRows) {
+            monthMap.set(row.month, {
+                thrift: 0,
+                loanRepayment: 0,
+                intrest: 0,
+                enttryFee: Number(row.enttryFee) || 0,
+                shareCapital: Number(row.shareCapital) || 0,
+                fdClosed: Number(row.fdClosed) || 0,
+                bankIntrest: Number(row.bankIntrest) || 0,
+                cashInHand: Number(row.cashInHand) || 0,
+                loanApplicationFee: Number(row.loanApplicationFee) || 0,
+                loansIssue: Number(row.loansIssue) || 0,
+                thriftRefundToMembers: Number(row.thriftRefundToMembers) || 0,
+                scRefund: Number(row.scRefund) || 0,
+                fixedDepositInBank: Number(row.fixedDepositInBank) || 0,
+                salaryForAccountent: Number(row.salaryForAccountent) || 0,
+                expenditure: Number(row.expenditure) || 0,
+                expenditureRemarks: row.expenditureRemarks || ''
+            });
+        }
+        for (const tx of transactions) {
+            const monthKey = tx.month;
+            if (!monthMap.has(monthKey)) {
+                monthMap.set(monthKey, {
+                    thrift: 0,
+                    loanRepayment: 0,
+                    intrest: 0,
+                    enttryFee: 0,
+                    shareCapital: 0,
+                    fdClosed: 0,
+                    bankIntrest: 0,
+                    cashInHand: 0,
+                    loanApplicationFee: 0,
+                    loansIssue: 0,
+                    thriftRefundToMembers: 0,
+                    scRefund: 0,
+                    fixedDepositInBank: 0,
+                    salaryForAccountent: 0,
+                    expenditure: 0,
+                    expenditureRemarks: ''
+                });
+            }
+
+            const agg = monthMap.get(monthKey);
+            const thrift = Number(tx.thriftDeduction) || 0;
+            const interest = Number(tx.interestPayment) || 0;
+            const loanEmi = Number(tx.loanEMI) || 0;
+            const principal = (Number(tx.principalRepayment) || 0) > 0
+                ? Number(tx.principalRepayment)
+                : Math.max(0, loanEmi - interest);
+
+            agg.thrift += thrift;
+            agg.intrest += interest;
+            agg.loanRepayment += principal;
+        }
+
+        let months = Array.from(monthMap.keys()).sort();
+        if (months.length === 0) {
+            if (from && to) {
+                months = enumerateMonths(from, to);
+            } else if (from) {
+                months = [from];
+            } else if (to) {
+                months = [to];
+            }
+
+            for (const monthKey of months) {
+                if (!monthMap.has(monthKey)) {
+                    monthMap.set(monthKey, {
+                        thrift: 0,
+                        loanRepayment: 0,
+                        intrest: 0,
+                        enttryFee: 0,
+                        shareCapital: 0,
+                        fdClosed: 0,
+                        bankIntrest: 0,
+                        cashInHand: 0,
+                        loanApplicationFee: 0,
+                        loansIssue: 0,
+                        thriftRefundToMembers: 0,
+                        scRefund: 0,
+                        fixedDepositInBank: 0,
+                        salaryForAccountent: 0,
+                        expenditure: 0,
+                        expenditureRemarks: ''
+                    });
+                }
+            }
+        }
+
+        months = Array.from(monthMap.keys()).sort();
+        const reportRows = months.map((monthKey) => {
+            const [year, month] = monthKey.split('-');
+            const data = monthMap.get(monthKey);
+            return {
+                month: `05-${month}-${year}`,
+                thrift: Math.round((data.thrift || 0) * 100) / 100,
+                'loan repayment': Math.round((data.loanRepayment || 0) * 100) / 100,
+                intrest: Math.round((data.intrest || 0) * 100) / 100,
+                'enttry fee': data.enttryFee,
+                'share capital': data.shareCapital,
+                'fd closed': data.fdClosed,
+                'bank intrest': data.bankIntrest,
+                'cash in hand': data.cashInHand,
+                'loan application fee': data.loanApplicationFee,
+                'loans issue': Math.round((data.loansIssue || 0) * 100) / 100,
+                'thrift refund to members': data.thriftRefundToMembers,
+                'SC Refund': data.scRefund,
+                'fixed deposit in bank': data.fixedDepositInBank,
+                'Salary for accountent': data.salaryForAccountent,
+                expenditure: data.expenditure,
+                'expenditure remarks': data.expenditureRemarks || ''
+            };
+        });
+
+        const totals = reportRows.reduce((acc, row) => {
+            const keys = Object.keys(row).filter((k) => k !== 'month');
+            for (const key of keys) acc[key] = (acc[key] || 0) + (Number(row[key]) || 0);
+            return acc;
+        }, {});
+
+        reportRows.push({
+            month: 'TOTAL',
+            thrift: totals.thrift || 0,
+            'loan repayment': totals['loan repayment'] || 0,
+            intrest: totals.intrest || 0,
+            'enttry fee': totals['enttry fee'] || 0,
+            'share capital': totals['share capital'] || 0,
+            'fd closed': totals['fd closed'] || 0,
+            'bank intrest': totals['bank intrest'] || 0,
+            'cash in hand': totals['cash in hand'] || 0,
+            'loan application fee': totals['loan application fee'] || 0,
+            'loans issue': totals['loans issue'] || 0,
+            'thrift refund to members': totals['thrift refund to members'] || 0,
+            'SC Refund': totals['SC Refund'] || 0,
+            'fixed deposit in bank': totals['fixed deposit in bank'] || 0,
+            'Salary for accountent': totals['Salary for accountent'] || 0,
+            expenditure: totals.expenditure || 0,
+            'expenditure remarks': ''
+        });
+
+        const workbook = xlsx.utils.book_new();
+        const worksheet = xlsx.utils.json_to_sheet(
+            reportRows.length > 1
+                ? reportRows
+                : [{
+                    month: 'NO DATA',
+                    thrift: 0,
+                    'loan repayment': 0,
+                    intrest: 0,
+                    'enttry fee': 0,
+                    'share capital': 0,
+                    'fd closed': 0,
+                    'bank intrest': 0,
+                    'cash in hand': 0,
+                    'loan application fee': 0,
+                    'loans issue': 0,
+                    'thrift refund to members': 0,
+                    'SC Refund': 0,
+                    'fixed deposit in bank': 0,
+                    'Salary for accountent': 0,
+                    expenditure: 0,
+                    'expenditure remarks': ''
+                }]
+        );
+        worksheet['!cols'] = [
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 15 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 10 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 19 },
+            { wch: 12 },
+            { wch: 24 },
+            { wch: 10 },
+            { wch: 20 },
+            { wch: 20 },
+            { wch: 12 },
+            { wch: 22 }
+        ];
+
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'Balance Sheet');
+        const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+        const suffix = from || to ? `${from || 'start'}_to_${to || 'latest'}` : 'all_months';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=Balance_Sheet_${suffix}.xlsx`);
+        res.send(buffer);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Update manual balance-sheet heads for a month
+// @route   PUT /api/admin/reports/balance-sheet/:month
+// @access  Private/Admin
+const upsertBalanceSheetMonth = async (req, res) => {
+    try {
+        const month = String(req.params.month || '').trim();
+        if (!/^\d{4}-\d{2}$/.test(month)) {
+            return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM.' });
+        }
+
+        const toNum = (v) => (v === undefined || v === null || v === '' ? 0 : Number(v) || 0);
+
+        const update = {
+            enttryFee: toNum(req.body.enttryFee),
+            shareCapital: toNum(req.body.shareCapital),
+            fdClosed: toNum(req.body.fdClosed),
+            bankIntrest: toNum(req.body.bankIntrest),
+            cashInHand: toNum(req.body.cashInHand),
+            loanApplicationFee: toNum(req.body.loanApplicationFee),
+            loansIssue: toNum(req.body.loansIssue),
+            thriftRefundToMembers: toNum(req.body.thriftRefundToMembers),
+            scRefund: toNum(req.body.scRefund),
+            fixedDepositInBank: toNum(req.body.fixedDepositInBank),
+            salaryForAccountent: toNum(req.body.salaryForAccountent),
+            expenditure: toNum(req.body.expenditure),
+            expenditureRemarks: String(req.body.expenditureRemarks || '').trim(),
+            updatedBy: req.user._id
+        };
+
+        const row = await BalanceSheetMonth.findOneAndUpdate(
+            { month },
+            {
+                $set: update,
+                $setOnInsert: {
+                    month,
+                    thrift: 0,
+                    loanRepayment: 0,
+                    intrest: 0
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        res.json({ message: `Balance sheet heads updated for ${month}`, row });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Generate Individual Employee Monthly Report (Excel)
 // @route   GET /api/admin/employees/:id/report/monthly/:month
 // @access  Private/Admin
@@ -1878,6 +2176,82 @@ const notifyMonthlyUpdate = async (req, res) => {
     }
 };
 
+const downloadUploadTemplate = async (req, res) => {
+    try {
+        const type = String(req.params.type || '').toLowerCase();
+
+        let workbook = xlsx.utils.book_new();
+        let worksheet;
+        let fileName;
+
+        if (type === 'employees') {
+            const employeeRows = [{
+                'Emp. ID': 'EMP001',
+                'Name of the Employ': 'S. Employee Name',
+                'Email': 'employee@example.com',
+                'Department': 'CSE',
+                'Designation': 'Assistant Professor',
+                'Phone': '9876543210',
+                'Salary': 50000,
+                'CB Thrift Amount As on': 25000,
+                'Monthly Threft Amount': 1500,
+                'Loan Status': ''
+            }];
+
+            worksheet = xlsx.utils.json_to_sheet(employeeRows);
+            xlsx.utils.book_append_sheet(workbook, worksheet, 'Employees Template');
+            fileName = 'employee_upload_template.xlsx';
+        } else if (type === 'monthly') {
+            const monthlyRows = [{
+                'Emp. ID': 'EMP001',
+                'Name of the Employ': 'S. Employee Name',
+                'CB Thrift Amount As on': 26500,
+                'Loan': 120000,
+                'Loan Re payment': 3000,
+                'Intrest': 1200,
+                'Monthly Threft Amount': 1500,
+                'Total  Amount': 4500,
+                'Paid Amount': 4500,
+                'Loan Amount': 4200,
+                'Thrift': 1500,
+                'Total monthly deduction': 4500,
+                'enttry fee': 200,
+                'share capital': 2000,
+                'fd closed': 0,
+                'bank intrest': 976,
+                'cash in hand': 0,
+                'loan application fee': 300,
+                'loans issue': 400000,
+                'thrift refund to members': 177386,
+                'SC Refund': 2000,
+                'fixed deposit in bank': 0,
+                'Salary for accountent': 8000,
+                'expenditure': 4000,
+                'expenditure remarks': 'Meating expenditure',
+                'surity1 Emp .ID': 'EMP010',
+                'surity2 Emp .ID': 'EMP011',
+                'surity3 Emp .ID': '',
+                'surity4 Emp .ID': '',
+                'surity5 Emp .ID': '',
+                'surity6 Emp .ID': ''
+            }];
+
+            worksheet = xlsx.utils.json_to_sheet(monthlyRows);
+            xlsx.utils.book_append_sheet(workbook, worksheet, 'Monthly Template');
+            fileName = 'monthly_upload_template.xlsx';
+        } else {
+            return res.status(400).json({ message: 'Invalid template type. Use employees or monthly.' });
+        }
+
+        const buffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        return res.send(buffer);
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     getDashboardStats,
     getEmployees,
@@ -1892,6 +2266,8 @@ module.exports = {
     getAdjustmentHistory,
     getEmployeeTransactions,
     generateMonthlyReport,
+    generateBalanceSheetReport,
+    upsertBalanceSheetMonth,
     generateYearlyReport,
     generateEmployeeMonthlyReport,
     generateEmployeeYearlyReport,
@@ -1900,6 +2276,7 @@ module.exports = {
     regenerateCredentials,
     getMonthlyUploadHistory,
     downloadArchivedMonthReport,
+    downloadUploadTemplate,
     notifyMonthlyUpdate,
     notifyMonthlySms
 };

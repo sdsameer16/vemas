@@ -14,6 +14,8 @@ const {
     getAdjustmentHistory,
     getEmployeeTransactions,
     generateMonthlyReport,
+    generateBalanceSheetReport,
+    upsertBalanceSheetMonth,
     generateYearlyReport,
     generateEmployeeMonthlyReport,
     generateEmployeeYearlyReport,
@@ -22,6 +24,7 @@ const {
     regenerateCredentials,
     getMonthlyUploadHistory,
     downloadArchivedMonthReport,
+    downloadUploadTemplate,
     notifyMonthlyUpdate,
     notifyMonthlySms
 } = require('../controllers/adminController');
@@ -40,6 +43,7 @@ router.route('/employees')
 
 router.post('/upload/employees', upload.single('file'), uploadEmployeeExcel);
 router.post('/upload/monthly', upload.single('file'), uploadMonthlyUpdate);
+router.get('/upload/template/:type', downloadUploadTemplate);
 
 router.route('/employees/:id')
     .get(getEmployeeDetails)
@@ -55,6 +59,8 @@ router.get('/employees/:id/transactions', getEmployeeTransactions);
 
 // Report routes
 router.get('/reports/monthly/:month', generateMonthlyReport);
+router.get('/reports/balance-sheet', generateBalanceSheetReport);
+router.put('/reports/balance-sheet/:month', upsertBalanceSheetMonth);
 router.get('/reports/yearly/:year', generateYearlyReport);
 router.get('/reports/monthly-history', getMonthlyUploadHistory);
 router.get('/reports/archived/:month', downloadArchivedMonthReport);

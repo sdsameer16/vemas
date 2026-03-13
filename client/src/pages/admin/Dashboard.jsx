@@ -19,9 +19,12 @@ const AdminDashboard = () => {
     });
 
     const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear().toString());
+    const [balanceFrom, setBalanceFrom] = useState('');
+    const [balanceTo, setBalanceTo] = useState('');
 
     const [downloading, setDownloading] = useState(false);
     const [downloadingMonth, setDownloadingMonth] = useState(null); // which month row is downloading
+    const [downloadingBalanceSheet, setDownloadingBalanceSheet] = useState(false);
 
     const [monthlyHistory, setMonthlyHistory] = useState([]);
     const [loadingHistory, setLoadingHistory] = useState(true);
@@ -134,6 +137,39 @@ const AdminDashboard = () => {
         }
     };
 
+    const handleDownloadBalanceSheet = async () => {
+        setDownloadingBalanceSheet(true);
+        try {
+            const params = new URLSearchParams();
+            if (balanceFrom) params.append('from', balanceFrom);
+            if (balanceTo) params.append('to', balanceTo);
+
+            const response = await api.get(`/admin/reports/balance-sheet${params.toString() ? `?${params.toString()}` : ''}`, {
+                responseType: 'blob'
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'Balance_Sheet.xlsx');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            toast.success('Balance sheet downloaded successfully!');
+        } catch (error) {
+            console.error('Failed to download balance sheet', error);
+            if (error.response?.data instanceof Blob) {
+                const text = await error.response.data.text();
+                try { toast.error(JSON.parse(text).message); } catch { toast.error(text || 'Failed to download balance sheet'); }
+            } else {
+                toast.error(error.response?.data?.message || 'Failed to download balance sheet');
+            }
+        } finally {
+            setDownloadingBalanceSheet(false);
+        }
+    };
+
     const cards = [
         { title: 'Total Employees', value: stats.totalEmployees, icon: Users, color: 'bg-blue-600' },
         { title: 'Thrift Balance', value: `₹${stats.totalThrift.toLocaleString()}`, icon: IndianRupee, color: 'bg-green-600' },
@@ -223,6 +259,40 @@ const AdminDashboard = () => {
                             </button>
                         </div>
                     </div>
+                </div>
+
+                <div className="mt-6 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                    <h4 className="font-semibold text-slate-800 dark:text-slate-100 mb-3">Balance Sheet (Month-wise)</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Downloads month-wise balance sheet with dates. The <strong>intrest</strong> column is auto-calculated from monthly uploaded transaction data.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input
+                            type="month"
+                            value={balanceFrom}
+                            onChange={(e) => setBalanceFrom(e.target.value)}
+                            className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            placeholder="From month"
+                        />
+                        <input
+                            type="month"
+                            value={balanceTo}
+                            onChange={(e) => setBalanceTo(e.target.value)}
+                            className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            placeholder="To month"
+                        />
+                        <button
+                            onClick={handleDownloadBalanceSheet}
+                            disabled={downloadingBalanceSheet}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                        >
+                            <Download size={16} />
+                            {downloadingBalanceSheet ? 'Downloading...' : 'Download Balance Sheet'}
+                        </button>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2">
+                        Leave date range empty to export all available months.
+                    </p>
                 </div>
             </div>
 

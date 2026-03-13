@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const AdjustmentHistory = require('../models/AdjustmentHistory');
 const MonthlyUploadLog = require('../models/MonthlyUploadLog');
 const Loan = require('../models/Loan');
+const BalanceSheetMonth = require('../models/BalanceSheetMonth');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const archiveOldMonths = require('../utils/archiveOldMonths');
@@ -37,7 +38,20 @@ const COLUMN_MAP = {
     surity4:        ['surity4 Emp .ID', 'surity4 Emp ID', 'surity4', 'Surity4', 'Surety4'],
     surity5:        ['surity5 Emp .ID', 'surity5 Emp ID', 'surity5', 'Surity5', 'Surety5'],
     surity6:        ['surity6 Emp .ID', 'surity6 Emp ID', 'surity6', 'Surity6', 'Surety6'],
-    phone:          ['Phone', 'Mobile No', 'Mobile', 'Contact', 'Phone No', 'Mob No', 'Cell', 'Phone Number', 'Mobile Number']
+    phone:          ['Phone', 'Mobile No', 'Mobile', 'Contact', 'Phone No', 'Mob No', 'Cell', 'Phone Number', 'Mobile Number'],
+    enttryFee:      ['enttry fee', 'entry fee'],
+    shareCapital:   ['share capital', 'share'],
+    fdClosed:       ['fd closed', 'fd close', 'fd closure'],
+    bankIntrest:    ['bank intrest', 'bank interest'],
+    cashInHand:     ['cash in hand', 'cash'],
+    loanApplicationFee: ['loan application fee', 'loan app fee'],
+    loansIssue:     ['loans issue', 'loan issue', 'loan issued'],
+    thriftRefundToMembers: ['thrift refund to members', 'thrift refund'],
+    scRefund:       ['sc refund', 'share capital refund'],
+    fixedDepositInBank: ['fixed deposit in bank', 'fd in bank', 'fixed deposit'],
+    salaryForAccountent: ['salary for accountent', 'salary for accountant', 'accountant salary'],
+    expenditure:    ['expenditure', 'expense'],
+    expenditureRemarks: ['expenditure remarks', 'expenditure remark', 'remarks', 'narration']
 };
 
 // Normalize a string: trim, collapse internal whitespace, lowercase
@@ -234,6 +248,37 @@ const uploadMonthlyUpdate = async (req, res) => {
 
         const allWarnings = [];
         const processedIds = []; // track employee IDs processed in this upload
+
+        // Pull month-level balance sheet heads from the same uploaded Excel.
+        const headFieldKeys = [
+            'enttryFee', 'shareCapital', 'fdClosed', 'bankIntrest', 'cashInHand',
+            'loanApplicationFee', 'loansIssue', 'thriftRefundToMembers', 'scRefund',
+            'fixedDepositInBank', 'salaryForAccountent', 'expenditure'
+        ];
+        const extractedHeads = {};
+        const hasHeadColumn = {};
+        for (const key of headFieldKeys) {
+            extractedHeads[key] = 0;
+            hasHeadColumn[key] = !!columnMapping[key];
+        }
+        const extractedRemarks = new Set();
+
+        for (const row of data) {
+            for (const key of headFieldKeys) {
+                const col = columnMapping[key];
+                if (!col) continue;
+                const raw = row[col];
+                if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+                const n = Number(raw);
+                if (!isNaN(n)) extractedHeads[key] += n;
+            }
+
+            if (columnMapping.expenditureRemarks) {
+                const rawRemark = row[columnMapping.expenditureRemarks];
+                const remark = String(rawRemark || '').trim();
+                if (remark && remark.toUpperCase() !== 'TOTAL') extractedRemarks.add(remark);
+            }
+        }
 
         for (const [index, row] of data.entries()) {
             const rowNumber = headerRowIdx + index + 2; // Actual Excel row
@@ -558,6 +603,69 @@ const uploadMonthlyUpdate = async (req, res) => {
 
         // Archive months older than 4 (runs async, doesn't block response)
         archiveOldMonths().catch(e => console.error('[Archive] background error:', e.message));
+
+        // Auto-upsert month-wise balance sheet summary from uploaded transaction data.
+        const monthTransactions = await Transaction.find({ month: uploadMonth })
+            .select('thriftDeduction principalRepayment loanEMI interestPayment')
+            .lean();
+
+        let thriftTotal = 0;
+        let loanRepaymentTotal = 0;
+        let intrestTotal = 0;
+
+        for (const tx of monthTransactions) {
+            const thrift = Number(tx.thriftDeduction) || 0;
+            const intrest = Number(tx.interestPayment) || 0;
+            const loanEmi = Number(tx.loanEMI) || 0;
+            const principal = (Number(tx.principalRepayment) || 0) > 0
+                ? Number(tx.principalRepayment)
+                : Math.max(0, loanEmi - intrest);
+
+            thriftTotal += thrift;
+            intrestTotal += intrest;
+            loanRepaymentTotal += principal;
+        }
+
+        await BalanceSheetMonth.findOneAndUpdate(
+            { month: uploadMonth },
+            {
+                $set: {
+                    thrift: Math.round(thriftTotal * 100) / 100,
+                    loanRepayment: Math.round(loanRepaymentTotal * 100) / 100,
+                    intrest: Math.round(intrestTotal * 100) / 100,
+                    ...(hasHeadColumn.enttryFee ? { enttryFee: Math.round(extractedHeads.enttryFee) } : {}),
+                    ...(hasHeadColumn.shareCapital ? { shareCapital: Math.round(extractedHeads.shareCapital) } : {}),
+                    ...(hasHeadColumn.fdClosed ? { fdClosed: Math.round(extractedHeads.fdClosed) } : {}),
+                    ...(hasHeadColumn.bankIntrest ? { bankIntrest: Math.round(extractedHeads.bankIntrest) } : {}),
+                    ...(hasHeadColumn.cashInHand ? { cashInHand: Math.round(extractedHeads.cashInHand) } : {}),
+                    ...(hasHeadColumn.loanApplicationFee ? { loanApplicationFee: Math.round(extractedHeads.loanApplicationFee) } : {}),
+                    ...(hasHeadColumn.loansIssue ? { loansIssue: Math.round(extractedHeads.loansIssue) } : {}),
+                    ...(hasHeadColumn.thriftRefundToMembers ? { thriftRefundToMembers: Math.round(extractedHeads.thriftRefundToMembers) } : {}),
+                    ...(hasHeadColumn.scRefund ? { scRefund: Math.round(extractedHeads.scRefund) } : {}),
+                    ...(hasHeadColumn.fixedDepositInBank ? { fixedDepositInBank: Math.round(extractedHeads.fixedDepositInBank) } : {}),
+                    ...(hasHeadColumn.salaryForAccountent ? { salaryForAccountent: Math.round(extractedHeads.salaryForAccountent) } : {}),
+                    ...(hasHeadColumn.expenditure ? { expenditure: Math.round(extractedHeads.expenditure) } : {}),
+                    ...(columnMapping.expenditureRemarks ? { expenditureRemarks: Array.from(extractedRemarks).join('; ') } : {}),
+                    updatedBy: req.user._id
+                },
+                $setOnInsert: {
+                    enttryFee: 0,
+                    shareCapital: 0,
+                    fdClosed: 0,
+                    bankIntrest: 0,
+                    cashInHand: 0,
+                    loanApplicationFee: 0,
+                    loansIssue: 0,
+                    thriftRefundToMembers: 0,
+                    scRefund: 0,
+                    fixedDepositInBank: 0,
+                    salaryForAccountent: 0,
+                    expenditure: 0,
+                    expenditureRemarks: ''
+                }
+            },
+            { upsert: true, new: true }
+        );
 
         // Build column detection summary for UI diagnostics
         const columnSummary = {};

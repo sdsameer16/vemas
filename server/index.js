@@ -12,22 +12,34 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet());
 
 // Middleware
-const allowedOrigins = [
-    process.env.CORS_ORIGIN,
-    process.env.CLIENT_URL,
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/$/, '');
+
+const splitOrigins = (value) => String(value || '')
+    .split(',')
+    .map(part => normalizeOrigin(part))
+    .filter(Boolean);
+
+const allowedOrigins = Array.from(new Set([
+    ...splitOrigins(process.env.CORS_ORIGIN),
+    ...splitOrigins(process.env.CLIENT_URL),
     'https://vema-society.vercel.app',
     'http://localhost:5173',
     'http://127.0.0.1:5173'
-].filter(Boolean);
+]));
+
+const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
 app.use(cors({
     origin: (origin, callback) => {
         // allow non-browser clients (curl/postman) with no origin
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
+        const normalizedOrigin = normalizeOrigin(origin);
+        if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
+        if (localhostPattern.test(normalizedOrigin)) return callback(null, true);
         return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     methods: ["GET", "POST", "PUT", "DELETE"],
+    optionsSuccessStatus: 204,
     credentials: true
 }));
 app.use(express.json());

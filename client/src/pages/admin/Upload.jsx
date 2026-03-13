@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '../../api/axios';
 import Layout from '../../components/Layout';
-import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, UserPlus, SendHorizonal, RefreshCw, Mail, Bell, MessageSquare } from 'lucide-react';
+import { Upload as UploadIcon, FileText, CheckCircle, AlertCircle, UserPlus, SendHorizonal, RefreshCw, Mail, Bell, MessageSquare, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const Upload = () => {
@@ -238,6 +238,26 @@ const Upload = () => {
         }
     };
 
+    const downloadTemplate = async () => {
+        try {
+            const type = uploadType === 'employees' ? 'employees' : 'monthly';
+            const fileName = type === 'employees' ? 'employee_upload_template.xlsx' : 'monthly_upload_template.xlsx';
+            const response = await api.get(`/admin/upload/template/${type}`, { responseType: 'blob' });
+
+            const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.setAttribute('download', fileName);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(blobUrl);
+            toast.success('Template downloaded');
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Failed to download template');
+        }
+    };
+
     return (
         <Layout>
             <div className="mb-8">
@@ -283,6 +303,15 @@ const Upload = () => {
                                 </>
                             )}
                     </p>
+
+                    <button
+                        type="button"
+                        onClick={downloadTemplate}
+                        className="mb-6 w-full btn bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2"
+                    >
+                        <Download size={16} />
+                        {uploadType === 'employees' ? 'Download Employee Upload Template (.xlsx)' : 'Download Monthly Upload Template (.xlsx)'}
+                    </button>
 
                     <form onSubmit={handleUpload} className="flex flex-col gap-4">
                         <div className="bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:border-indigo-500 transition-colors">
