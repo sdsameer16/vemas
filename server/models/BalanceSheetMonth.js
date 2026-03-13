@@ -21,5 +21,4 @@ const balanceSheetMonthSchema = new mongoose.Schema({
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-balanceSheetMonthSchema.index({ month: 1 }, { unique: true });
 module.exports = mongoose.model('BalanceSheetMonth', balanceSheetMonthSchema);
