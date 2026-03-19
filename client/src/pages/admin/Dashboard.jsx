@@ -25,6 +25,7 @@ const AdminDashboard = () => {
     const [downloading, setDownloading] = useState(false);
     const [downloadingMonth, setDownloadingMonth] = useState(null); // which month row is downloading
     const [downloadingBalanceSheet, setDownloadingBalanceSheet] = useState(false);
+    const [downloadingKycDetails, setDownloadingKycDetails] = useState(false);
 
     const [monthlyHistory, setMonthlyHistory] = useState([]);
     const [loadingHistory, setLoadingHistory] = useState(true);
@@ -170,6 +171,35 @@ const AdminDashboard = () => {
         }
     };
 
+    const handleDownloadKycDetails = async () => {
+        setDownloadingKycDetails(true);
+        try {
+            const response = await api.get('/admin/reports/kyc-details', {
+                responseType: 'blob'
+            });
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'Employee_KYC_Details.xlsx');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            toast.success('PAN and Aadhaar details downloaded successfully!');
+        } catch (error) {
+            console.error('Failed to download KYC details', error);
+            if (error.response?.data instanceof Blob) {
+                const text = await error.response.data.text();
+                try { toast.error(JSON.parse(text).message); } catch { toast.error(text || 'Failed to download PAN and Aadhaar details'); }
+            } else {
+                toast.error(error.response?.data?.message || 'Failed to download PAN and Aadhaar details');
+            }
+        } finally {
+            setDownloadingKycDetails(false);
+        }
+    };
+
     const cards = [
         { title: 'Total Employees', value: stats.totalEmployees, icon: Users, color: 'bg-blue-600' },
         { title: 'Thrift Balance', value: `₹${stats.totalThrift.toLocaleString()}`, icon: IndianRupee, color: 'bg-green-600' },
@@ -293,6 +323,21 @@ const AdminDashboard = () => {
                     <p className="text-xs text-slate-400 mt-2">
                         Leave date range empty to export all available months.
                     </p>
+                </div>
+
+                <div className="mt-6 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                    <h4 className="font-semibold text-slate-800 dark:text-slate-100 mb-3">PAN & Aadhaar Details</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Download employee KYC details with Employee ID, Employee Name, PAN Number, and Aadhaar Number.
+                    </p>
+                    <button
+                        onClick={handleDownloadKycDetails}
+                        disabled={downloadingKycDetails}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                        <Download size={16} />
+                        {downloadingKycDetails ? 'Downloading...' : 'Download PAN/Aadhaar Details'}
+                    </button>
                 </div>
             </div>
 

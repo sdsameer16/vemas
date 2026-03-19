@@ -284,7 +284,20 @@ const getEmployeeDetails = async (req, res) => {
 // @access  Private/Admin
 const createEmployee = async (req, res) => {
     try {
-        const { name, email, department, designation, phone, salary, thriftContribution } = req.body;
+        const { empId, name, email, department, designation, phone, salary, thriftContribution } = req.body;
+
+        const normalizedEmpId = empId !== undefined && empId !== null && String(empId).trim() !== ''
+            ? String(empId).trim()
+            : null;
+
+        if (normalizedEmpId) {
+            const existingByEmpId = await Employee.findOne({
+                $or: [{ empId: normalizedEmpId }, { empId: Number(normalizedEmpId) }]
+            });
+            if (existingByEmpId) {
+                return res.status(400).json({ message: 'Employee already exists with this Emp ID' });
+            }
+        }
 
         const employeeExists = await Employee.findOne({ email });
         if (employeeExists) {
@@ -292,6 +305,7 @@ const createEmployee = async (req, res) => {
         }
 
         const employee = await Employee.create({
+            empId: normalizedEmpId || undefined,
             name,
             email,
             department,
@@ -304,9 +318,14 @@ const createEmployee = async (req, res) => {
         // Create User account for employee
         // Generate temporary password
         const tempPassword = Math.random().toString(36).slice(-8);
+        const loginUsername = normalizedEmpId || email;
+
+        if (!loginUsername) {
+            return res.status(400).json({ message: 'Emp ID or Email is required to create login credentials' });
+        }
 
         await User.create({
-            username: email, // Default username is email
+            username: loginUsername,
             password: tempPassword, // Will be hashed by pre-save hook
             role: 'employee',
             employeeId: employee._id
@@ -314,7 +333,7 @@ const createEmployee = async (req, res) => {
 
         res.status(201).json({
             employee,
-            tempCredentials: { username: email, password: tempPassword }
+            tempCredentials: { username: loginUsername, password: tempPassword }
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -1450,6 +1469,58 @@ const generateBalanceSheetReport = async (req, res) => {
     }
 };
 
+// @desc    Generate Employee KYC Details Report (Excel)
+// @route   GET /api/admin/reports/kyc-details
+// @access  Private/Admin
+const downloadKycDetailsReport = async (req, res) => {
+    try {
+        const employees = await Employee.find({})
+            .select('empId name panNumber aadhaarNumber')
+            .sort({ name: 1 })
+            .lean();
+
+        const reportRows = employees.map((emp, index) => ({
+            'S.No': index + 1,
+            'Employee ID': emp.empId ?? '',
+            'Employee Name': emp.name || '',
+            'PAN Number': emp.panNumber || '',
+            'Aadhaar Number': emp.aadhaarNumber || ''
+        }));
+
+        const workbook = xlsx.utils.book_new();
+        const worksheet = xlsx.utils.json_to_sheet(
+            reportRows.length > 0
+                ? reportRows
+                : [{
+                    'S.No': '',
+                    'Employee ID': '',
+                    'Employee Name': 'No employee records found',
+                    'PAN Number': '',
+                    'Aadhaar Number': ''
+                }]
+        );
+
+        worksheet['!cols'] = [
+            { wch: 8 },
+            { wch: 15 },
+            { wch: 32 },
+            { wch: 18 },
+            { wch: 20 }
+        ];
+
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'KYC Details');
+
+        const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        const dateStamp = new Date().toISOString().slice(0, 10);
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=Employee_KYC_Details_${dateStamp}.xlsx`);
+        res.send(buffer);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 // @desc    Update manual balance-sheet heads for a month
 // @route   PUT /api/admin/reports/balance-sheet/:month
 // @access  Private/Admin
@@ -1908,16 +1979,79 @@ const regenerateCredentials = async (req, res) => {
     try {
         const employees = await Employee.find({}).select('empId name email');
         const results = [];
-        for (const emp of employees) {
-            const username = String(emp.empId);
-            const user = await User.findOne({ username });
-            if (!user) continue;
-            const newPassword = Math.random().toString(36).slice(-8);
-            user.password = newPassword; // hashed by pre-save hook
-            await user.save();
-            results.push({ empId: emp.empId, name: emp.name, username, password: newPassword, email: emp.email || '' });
+        const skipped = [];
+
+        if (!employees.length) {
+            return res.status(404).json({ message: 'No employees found to reset credentials' });
         }
-        res.json({ message: `Credentials reset for ${results.length} employees`, credentials: results });
+
+        const plans = [];
+
+        for (const emp of employees) {
+            const normalizedEmpId = emp.empId !== undefined && emp.empId !== null && String(emp.empId).trim() !== ''
+                ? String(emp.empId).trim()
+                : null;
+
+            if (!normalizedEmpId) {
+                skipped.push({ empId: 'N/A', name: emp.name || 'Unknown', reason: 'Missing Emp ID' });
+                continue;
+            }
+
+            let user = await User.findOne({ role: 'employee', employeeId: emp._id });
+            if (!user) {
+                user = await User.findOne({ role: 'employee', username: normalizedEmpId });
+            }
+
+            if (!user) {
+                user = new User({
+                    username: normalizedEmpId,
+                    password: Math.random().toString(36).slice(-8),
+                    role: 'employee',
+                    employeeId: emp._id,
+                    isFirstLogin: true,
+                    resetPasswordToken: null,
+                    resetPasswordExpires: null
+                });
+                await user.save();
+            }
+
+            plans.push({
+                employee: emp,
+                user,
+                finalUsername: normalizedEmpId
+            });
+        }
+
+        // Pass 1: move every planned user to a unique temporary username to avoid collisions.
+        for (const plan of plans) {
+            plan.user.username = `tmp_${plan.user._id}_${Date.now()}`;
+            await plan.user.save();
+        }
+
+        // Pass 2: assign final Emp ID username and reset password.
+        for (const plan of plans) {
+            const newPassword = Math.random().toString(36).slice(-8);
+            plan.user.username = plan.finalUsername;
+            plan.user.password = newPassword; // hashed by pre-save hook
+            plan.user.resetPasswordToken = null;
+            plan.user.resetPasswordExpires = null;
+            plan.user.isFirstLogin = true;
+            await plan.user.save();
+
+            results.push({
+                empId: plan.finalUsername,
+                name: plan.employee.name || plan.finalUsername,
+                username: plan.finalUsername,
+                password: newPassword,
+                email: plan.employee.email || ''
+            });
+        }
+
+        res.json({
+            message: `Credentials reset for ${results.length} employees`,
+            credentials: results,
+            skipped
+        });
     } catch (error) {
         console.error('regenerateCredentials error:', error);
         res.status(500).json({ message: error.message });
@@ -2267,6 +2401,7 @@ module.exports = {
     getEmployeeTransactions,
     generateMonthlyReport,
     generateBalanceSheetReport,
+    downloadKycDetailsReport,
     upsertBalanceSheetMonth,
     generateYearlyReport,
     generateEmployeeMonthlyReport,

@@ -19,27 +19,97 @@ const generateToken = (id) => {
 // @access  Public
 router.post('/login', async (req, res) => {
     try {
-        const { username, password } = req.body;
+        const rawUsername = req.body?.username;
+        const rawPassword = req.body?.password;
+        const username = String(rawUsername || '').trim();
+        const password = String(rawPassword || '');
 
-        // Check for user
-        const user = await User.findOne({ username });
-        if (!user) {
+        if (!username || !password) {
+            return res.status(400).json({ message: 'Username and password are required' });
+        }
+
+        const passwordMatches = async (candidate, inputPassword) => {
+            let ok = await candidate.matchPassword(inputPassword);
+            if (!ok) {
+                const trimmed = inputPassword.trim();
+                if (trimmed !== inputPassword) {
+                    ok = await candidate.matchPassword(trimmed);
+                }
+            }
+            return ok;
+        };
+
+        const normalizeEmpId = (value) => String(value ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/\.0+$/, '');
+
+        const candidates = [];
+        const addCandidate = (candidate) => {
+            if (!candidate) return;
+            if (!candidates.some((u) => String(u._id) === String(candidate._id))) {
+                candidates.push(candidate);
+            }
+        };
+
+        // 1) Direct username match
+        const directUser = await User.findOne({ username });
+        addCandidate(directUser);
+
+        // 2) Case-insensitive email-style username fallback
+        const lower = username.toLowerCase();
+        if (lower !== username) {
+            const lowerUser = await User.findOne({ username: lower });
+            addCandidate(lowerUser);
+        }
+
+        // 3) EmpId fallback: allow login input as Employee ID
+        {
+            const empIdQueries = [{ empId: username }];
+            const numericEmpId = Number(username);
+            if (!Number.isNaN(numericEmpId)) {
+                empIdQueries.push({ empId: numericEmpId });
+            }
+
+            let employee = await Employee.findOne({ $or: empIdQueries }).select('_id empId');
+
+            if (!employee) {
+                // Fallback for mixed/dirty empId formats (e.g., spaces or 9.0 stored as string)
+                const allEmpIds = await Employee.find({ empId: { $exists: true, $ne: null } }).select('_id empId');
+                const normalizedInput = normalizeEmpId(username);
+                employee = allEmpIds.find((e) => normalizeEmpId(e.empId) === normalizedInput) || null;
+            }
+
+            if (employee) {
+                const employeeUsers = await User.find({ role: 'employee', employeeId: employee._id });
+                employeeUsers.forEach(addCandidate);
+            }
+        }
+
+        if (candidates.length === 0) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        // Check password
-        const isMatch = await user.matchPassword(password);
-        if (!isMatch) {
+        // Validate password against all candidate accounts and pick the first match
+        let matchedUser = null;
+        for (const candidate of candidates) {
+            if (await passwordMatches(candidate, password)) {
+                matchedUser = candidate;
+                break;
+            }
+        }
+
+        if (!matchedUser) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
         res.json({
-            _id: user._id,
-            username: user.username,
-            role: user.role,
-            isFirstLogin: user.isFirstLogin,
-            token: generateToken(user._id),
-            employeeId: user.employeeId
+            _id: matchedUser._id,
+            username: matchedUser.username,
+            role: matchedUser.role,
+            isFirstLogin: matchedUser.isFirstLogin,
+            token: generateToken(matchedUser._id),
+            employeeId: matchedUser.employeeId
         });
     } catch (error) {
         console.error(error);

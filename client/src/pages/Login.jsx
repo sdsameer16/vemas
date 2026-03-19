@@ -63,7 +63,7 @@ const Login = () => {
                     </div>
                     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                         <div>
-                            <label className="block text-sm font-medium mb-1">Email / Username</label>
+                            <label className="block text-sm font-medium mb-1">Emp ID / Username</label>
                             <input
                                 type="text"
                                 name="username"
@@ -74,6 +74,9 @@ const Login = () => {
                                 required
                                 disabled={loggingIn}
                             />
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Employee login uses Emp ID as username after credential reset.
+                            </p>
                         </div>
                         <div>
                             <label className="block text-sm font-medium mb-1">Password</label>

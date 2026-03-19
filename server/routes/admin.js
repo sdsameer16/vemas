@@ -15,6 +15,7 @@ const {
     getEmployeeTransactions,
     generateMonthlyReport,
     generateBalanceSheetReport,
+    downloadKycDetailsReport,
     upsertBalanceSheetMonth,
     generateYearlyReport,
     generateEmployeeMonthlyReport,
@@ -60,6 +61,7 @@ router.get('/employees/:id/transactions', getEmployeeTransactions);
 // Report routes
 router.get('/reports/monthly/:month', generateMonthlyReport);
 router.get('/reports/balance-sheet', generateBalanceSheetReport);
+router.get('/reports/kyc-details', downloadKycDetailsReport);
 router.put('/reports/balance-sheet/:month', upsertBalanceSheetMonth);
 router.get('/reports/yearly/:year', generateYearlyReport);
 router.get('/reports/monthly-history', getMonthlyUploadHistory);

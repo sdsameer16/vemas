@@ -85,6 +85,17 @@ const EmployeeDashboard = () => {
                         )}
                     </p>
                 )}
+
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-sm">
+                        <span className="text-slate-500 dark:text-slate-400">PAN Number: </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{dashboard.panNumber || '-'}</span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-sm">
+                        <span className="text-slate-500 dark:text-slate-400">Aadhaar Number: </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{dashboard.aadhaarNumber || '-'}</span>
+                    </div>
+                </div>
             </div>
 
             {/* Quick Summary Panel */}
