@@ -22,6 +22,13 @@ const loanSchema = new mongoose.Schema({
         enum: ['active', 'closed', 'pending', 'rejected'],
         default: 'active'
     },
+    paymentHistory: [{
+        amount: Number,
+        principal: Number,
+        interest: Number,
+        date: { type: Date, default: Date.now },
+        type: { type: String, enum: ['monthly', 'adhoc'], default: 'monthly' }
+    }],
     startDate: { type: Date, default: Date.now },
     endDate: { type: Date }
 }, { timestamps: true });

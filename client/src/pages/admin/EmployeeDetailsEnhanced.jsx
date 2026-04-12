@@ -98,6 +98,43 @@ const EmployeeDetailsEnhanced = () => {
         }
     };
 
+    const handleMarkInactive = async () => {
+        if (employee?.isActive === false) {
+            toast('Employee is already inactive', { icon: 'ℹ️' });
+            return;
+        }
+
+        const currentBalance = Number(employee?.thriftBalance || 0);
+        const amountInput = window.prompt(
+            `Enter thrift payout amount to settle (max ₹${currentBalance.toLocaleString()}).\nLeave as ${currentBalance} to settle full balance:`,
+            String(currentBalance)
+        );
+
+        if (amountInput === null) return;
+
+        const settlementAmount = Number(amountInput);
+        if (Number.isNaN(settlementAmount) || settlementAmount < 0) {
+            toast.error('Enter a valid settlement amount');
+            return;
+        }
+
+        if (!window.confirm(`Mark this employee inactive and settle ₹${settlementAmount.toLocaleString()} from thrift balance?`)) {
+            return;
+        }
+
+        try {
+            await api.post(`/admin/employees/${id}/mark-inactive`, {
+                settlementAmount,
+                remarks: 'Employee left organisation'
+            });
+            toast.success('Employee marked inactive and thrift settled');
+            fetchEmployee();
+            fetchHistory();
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Failed to mark employee inactive');
+        }
+    };
+
     const openAdjustmentPanel = (type) => {
         setAdjustmentType(type);
         setAdjustmentData({});
@@ -187,6 +224,11 @@ const EmployeeDetailsEnhanced = () => {
                         {employee.name}
                     </h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-1">{employee.designation} • {employee.department}</p>
+                    {employee.isActive === false && (
+                        <p className="mt-2 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                            INACTIVE
+                        </p>
+                    )}
                 </div>
                 <div className="flex gap-3">
                     {editMode ? (
@@ -203,6 +245,14 @@ const EmployeeDetailsEnhanced = () => {
                             <button onClick={() => setEditMode(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
                                 <Edit size={18} /> Edit Profile
                             </button>
+                            {employee.isActive !== false && (
+                                <button
+                                    onClick={handleMarkInactive}
+                                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                                >
+                                    <X size={18} /> Mark Inactive
+                                </button>
+                            )}
                             <button onClick={handleDelete} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
                                 <Trash size={18} /> Delete
                             </button>

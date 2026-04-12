@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
 import Layout from '../../components/Layout';
-import { Plus, Search, FileText, Check, X } from 'lucide-react';
+import { Plus, Search, FileText, Check, X, History, Clock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const Loans = () => {
@@ -9,6 +9,7 @@ const Loans = () => {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [selectedHistoryLoan, setSelectedHistoryLoan] = useState(null);
 
     // Create Loan Form State
     const [formData, setFormData] = useState({
@@ -184,11 +185,17 @@ const Loans = () => {
                                         {loan.status === 'active' && (
                                             <button
                                                 onClick={() => handleCloseLoan(loan._id)}
-                                                className="px-3 py-1 text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
+                                                className="px-3 py-1 text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors mr-2"
                                             >
                                                 Close
                                             </button>
                                         )}
+                                        <button
+                                            onClick={() => setSelectedHistoryLoan(loan)}
+                                            className="px-3 py-1 text-xs font-semibold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                        >
+                                            <History size={12} /> History
+                                        </button>
                                     </td>
                                 </tr>
                             ))
@@ -296,6 +303,79 @@ const Loans = () => {
                                 Create Loan
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+            {/* History Modal */}
+            {selectedHistoryLoan && (
+                <div className="fixed inset-0 bg-slate-950/80 dark:bg-slate-950/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+                    <div className="card w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl max-h-[90vh] flex flex-col">
+                        <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-800">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Clock size={20} className="text-indigo-500" />
+                                    Transaction History
+                                </h3>
+                                <p className="text-sm text-slate-500 mt-1">
+                                    {selectedHistoryLoan.borrower?.name} — Loan of ₹{selectedHistoryLoan.loanAmount.toLocaleString()}
+                                </p>
+                            </div>
+                            <button onClick={() => setSelectedHistoryLoan(null)} className="text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-white transition-colors">
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1">
+                            {(!selectedHistoryLoan.paymentHistory || selectedHistoryLoan.paymentHistory.length === 0) ? (
+                                <p className="text-center text-slate-500 py-8">No payments have been recorded for this loan yet.</p>
+                            ) : (
+                                <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 dark:before:via-slate-700 before:to-transparent">
+                                    <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                        {/* Dispersal Node */}
+                                        <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white dark:border-slate-900 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-500 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                                            <FileText size={16} />
+                                        </div>
+                                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded shadow-sm">
+                                            <div className="flex items-center justify-between space-x-2 mb-1">
+                                                <div className="font-bold text-slate-800 dark:text-slate-100">Loan Dispersed</div>
+                                                <time className="font-caveat font-medium text-indigo-500 text-xs">
+                                                    {new Date(selectedHistoryLoan.startDate).toLocaleString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </time>
+                                            </div>
+                                            <div className="text-sm text-slate-500 dark:text-slate-400 font-semibold text-orange-500">₹{selectedHistoryLoan.loanAmount.toLocaleString()} Distributed</div>
+                                        </div>
+                                    </div>
+
+                                    {selectedHistoryLoan.paymentHistory.map((payment, idx) => (
+                                        <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                            <div className={`flex items-center justify-center w-10 h-10 rounded-full border border-white dark:border-slate-900 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 ${payment.type === 'adhoc' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50'}`}>
+                                                <Check size={16} />
+                                            </div>
+                                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded shadow-sm">
+                                                <div className="flex items-center justify-between space-x-2 mb-1">
+                                                    <div className="font-bold text-slate-800 dark:text-slate-100">
+                                                        {payment.type === 'adhoc' ? 'Ad-hoc Payment' : 'EMI Processed'}
+                                                    </div>
+                                                    <time className="font-caveat font-medium text-emerald-500 text-xs">
+                                                        {new Date(payment.date).toLocaleString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </time>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-400 uppercase font-semibold">Total Paid</p>
+                                                        <p className="font-semibold text-slate-700 dark:text-slate-300">₹{payment.amount}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-[10px] text-slate-400 uppercase font-semibold">Principal & Interest</p>
+                                                        <p className="font-semibold text-sky-600 dark:text-sky-400 font-mono text-xs">P: ₹{payment.principal} <br/> I: ₹{payment.interest}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

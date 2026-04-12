@@ -10,6 +10,7 @@ const {
     uploadEmployeeExcel,
     adjustSalary,
     adjustThrift,
+    markEmployeeInactive,
     adjustLoan,
     getAdjustmentHistory,
     getEmployeeTransactions,
@@ -54,6 +55,7 @@ router.route('/employees/:id')
 // Adjustment routes
 router.post('/employees/:id/adjust-salary', adjustSalary);
 router.post('/employees/:id/adjust-thrift', adjustThrift);
+router.post('/employees/:id/mark-inactive', markEmployeeInactive);
 router.post('/employees/:id/adjust-loan', adjustLoan);
 router.get('/employees/:id/history', getAdjustmentHistory);
 router.get('/employees/:id/transactions', getEmployeeTransactions);

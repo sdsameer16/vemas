@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import AuthContext from '../context/AuthContext';
@@ -10,7 +10,9 @@ const CompleteProfile = () => {
     const [phone, setPhone] = useState('');
     const [panNumber, setPanNumber] = useState('');
     const [aadhaarNumber, setAadhaarNumber] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [adminProvidedEmail, setAdminProvidedEmail] = useState(false);
+    const [adminProvidedPhone, setAdminProvidedPhone] = useState(false);
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
 
@@ -19,6 +21,27 @@ const CompleteProfile = () => {
         navigate('/');
         return null;
     }
+
+    useEffect(() => {
+        const fetchInitialData = async () => {
+            try {
+                const { data } = await api.get('/employee/me');
+                if (data.email) {
+                    setEmail(data.email);
+                    setAdminProvidedEmail(true);
+                }
+                if (data.phone) {
+                    setPhone(data.phone);
+                    setAdminProvidedPhone(true);
+                }
+            } catch (error) {
+                console.error("Failed to load initial data", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchInitialData();
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -35,13 +58,13 @@ const CompleteProfile = () => {
         const normalizedPan = panNumber.trim().toUpperCase();
         const normalizedAadhaar = aadhaarNumber.replace(/\s+/g, '').trim();
 
-        if (normalizedPan && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(normalizedPan)) {
-            toast.error('Please enter a valid PAN number');
+        if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(normalizedPan)) {
+            toast.error('Please enter a valid 10-character PAN number');
             return;
         }
 
-        if (normalizedAadhaar && !/^[0-9]{12}$/.test(normalizedAadhaar)) {
-            toast.error('Please enter a valid Aadhaar number');
+        if (!/^[0-9]{12}$/.test(normalizedAadhaar)) {
+            toast.error('Please enter a valid 12-digit Aadhaar number');
             return;
         }
 
@@ -99,11 +122,15 @@ const CompleteProfile = () => {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                autoFocus
-                                disabled={loading}
+                                autoFocus={!adminProvidedEmail}
+                                disabled={loading || adminProvidedEmail}
                             />
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Used for password recovery and notifications</p>
+                        {adminProvidedEmail ? (
+                            <p className="text-xs text-green-500 mt-1">✓ Provided by Admin</p>
+                        ) : (
+                            <p className="text-xs text-slate-500 mt-1">Used for password recovery and notifications</p>
+                        )}
                     </div>
 
                     <div>
@@ -119,10 +146,14 @@ const CompleteProfile = () => {
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                                 required
-                                disabled={loading}
+                                disabled={loading || adminProvidedPhone}
                             />
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Your registered mobile number</p>
+                        {adminProvidedPhone ? (
+                            <p className="text-xs text-green-500 mt-1">✓ Provided by Admin</p>
+                        ) : (
+                            <p className="text-xs text-slate-500 mt-1">Your registered mobile number</p>
+                        )}
                     </div>
 
                     <div>
@@ -139,9 +170,10 @@ const CompleteProfile = () => {
                                 onChange={(e) => setPanNumber(e.target.value)}
                                 disabled={loading}
                                 autoCapitalize="characters"
+                                required
                             />
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Optional — used for verification</p>
+                        <p className="text-xs text-slate-500 mt-1">Required for financial verification</p>
                     </div>
 
                     <div>
@@ -158,9 +190,10 @@ const CompleteProfile = () => {
                                 value={aadhaarNumber}
                                 onChange={(e) => setAadhaarNumber(e.target.value)}
                                 disabled={loading}
+                                required
                             />
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Optional — digits only</p>
+                        <p className="text-xs text-slate-500 mt-1">Required for identity verification</p>
                     </div>
 
                     <button

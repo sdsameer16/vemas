@@ -11,6 +11,7 @@ import AdminDashboard from './pages/admin/Dashboard';
 import Employees from './pages/admin/Employees';
 import EmployeeDetailsEnhanced from './pages/admin/EmployeeDetailsEnhanced';
 import Upload from './pages/admin/Upload';
+import MonthlyProcessing from './pages/admin/MonthlyProcessing';
 import Loans from './pages/admin/Loans';
 import Thrift from './pages/admin/Thrift';
 import YearlyThriftUpdate from './pages/admin/YearlyThriftUpdate';
@@ -84,6 +85,14 @@ function App() {
               element={
                 <PrivateRoute role="admin">
                   <Upload />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/monthly-processing"
+              element={
+                <PrivateRoute role="admin">
+                  <MonthlyProcessing />
                 </PrivateRoute>
               }
             />

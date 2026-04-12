@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 import useTheme from '../context/ThemeContext';
-import { LayoutDashboard, Users, User, FileText, Upload, LogOut, Settings, Moon, Sun, RefreshCw, Wallet, Shield } from 'lucide-react';
+import { LayoutDashboard, Users, User, FileText, Upload, LogOut, Settings, Moon, Sun, RefreshCw, Wallet, Shield, Calendar } from 'lucide-react';
 
 const Sidebar = () => {
     const { user, logout } = useContext(AuthContext);
@@ -43,6 +43,10 @@ const Sidebar = () => {
                         <Link to="/admin/upload" className={`flex items-center space-x-3 px-4 py-3 rounded-lg ${isActive('/admin/upload')}`}>
                             <Upload size={20} />
                             <span>Uploads</span>
+                        </Link>
+                        <Link to="/admin/monthly-processing" className={`flex items-center space-x-3 px-4 py-3 rounded-lg ${isActive('/admin/monthly-processing')}`}>
+                            <Calendar size={20} />
+                            <span>Process Month</span>
                         </Link>
                         <Link to="/admin/loans" className={`flex items-center space-x-3 px-4 py-3 rounded-lg ${isActive('/admin/loans')}`}>
                             <FileText size={20} />

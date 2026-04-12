@@ -15,7 +15,16 @@ async function clearAll() {
     const db = mongoose.connection.db;
     
     // Get counts before clearing
-    const collections = ['employees', 'users', 'transactions', 'loans', 'adjustmenthistories', 'monthlyuploadlogs'];
+    const collections = [
+        'employees',
+        'users',
+        'transactions',
+        'loans',
+        'adjustmenthistories',
+        'monthlyuploadlogs',
+        'balancesheetmonths',
+        'archivedmonths'
+    ];
     
     console.log('\n── Before Clearing ──');
     for (const name of collections) {

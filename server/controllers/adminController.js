@@ -27,6 +27,15 @@ function inr(amount) {
     return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function getEmpIdCandidates(empId) {
+    const raw = String(empId ?? '').trim();
+    if (!raw) return [];
+    const candidates = [raw];
+    const asNum = Number(raw);
+    if (!Number.isNaN(asNum)) candidates.push(asNum);
+    return candidates;
+}
+
 const sendWelcomeEmail = async ({ name, email, empId, username, password }) => {
     const loginUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/login`;
     await sendEmail(
@@ -283,57 +292,65 @@ const getEmployeeDetails = async (req, res) => {
 // @route   POST /api/admin/employees
 // @access  Private/Admin
 const createEmployee = async (req, res) => {
+    const { empId, name, email, department, designation, phone, salary, thriftContribution } = req.body;
+
     try {
-        const { empId, name, email, department, designation, phone, salary, thriftContribution } = req.body;
-
-        const normalizedEmpId = empId !== undefined && empId !== null && String(empId).trim() !== ''
-            ? String(empId).trim()
-            : null;
-
-        if (normalizedEmpId) {
-            const existingByEmpId = await Employee.findOne({
-                $or: [{ empId: normalizedEmpId }, { empId: Number(normalizedEmpId) }]
-            });
-            if (existingByEmpId) {
-                return res.status(400).json({ message: 'Employee already exists with this Emp ID' });
-            }
+        if (!empId || !name) {
+            return res.status(400).json({ message: 'Employee ID and Name are required' });
         }
 
-        const employeeExists = await Employee.findOne({ email });
-        if (employeeExists) {
-            return res.status(400).json({ message: 'Employee already exists' });
+        const trimmedEmpId = String(empId).trim();
+        const existingEmployeeById = await Employee.findOne({ empId: { $in: getEmpIdCandidates(trimmedEmpId) } });
+        if (existingEmployeeById) {
+            return res.status(400).json({ message: `An employee with Emp ID "${trimmedEmpId}" already exists.` });
         }
 
-        const employee = await Employee.create({
-            empId: normalizedEmpId || undefined,
+        const existingUserByUsername = await User.findOne({ username: trimmedEmpId });
+        if (existingUserByUsername) {
+            return res.status(400).json({ message: `Login already exists for Emp ID "${trimmedEmpId}".` });
+        }
+
+        // Generate a temporary password
+        const tempPassword = Math.random().toString(36).slice(-8);
+        const employee = new Employee({
+            empId: trimmedEmpId,
             name,
             email,
-            department,
-            designation,
+            department: department || 'Non Teaching',
+            designation: designation || 'General',
             phone,
-            salary,
-            thriftContribution
+            salary: salary || 0,
+            thriftContribution: thriftContribution || 0,
+            thriftBalance: thriftContribution || 0
         });
 
-        // Create User account for employee
-        // Generate temporary password
-        const tempPassword = Math.random().toString(36).slice(-8);
-        const loginUsername = normalizedEmpId || email;
+        await employee.save();
 
-        if (!loginUsername) {
-            return res.status(400).json({ message: 'Emp ID or Email is required to create login credentials' });
-        }
-
-        await User.create({
-            username: loginUsername,
-            password: tempPassword, // Will be hashed by pre-save hook
+        const user = new User({
+            username: trimmedEmpId,
+            password: tempPassword, // Store plain for now, will be hashed on save
             role: 'employee',
             employeeId: employee._id
         });
+        await user.save();
+
+        // Send welcome email
+        if (email) {
+            try {
+                await sendWelcomeEmail({ name, email, empId: trimmedEmpId, username: trimmedEmpId, password: tempPassword });
+            } catch (emailError) {
+                console.error(`Failed to send welcome email to ${email}:`, emailError);
+                // Don't block the response for this
+            }
+        }
 
         res.status(201).json({
+            message: 'Employee created successfully',
             employee,
-            tempCredentials: { username: loginUsername, password: tempPassword }
+            tempCredentials: {
+                username: trimmedEmpId,
+                password: tempPassword
+            }
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -425,8 +442,8 @@ const uploadEmployeeExcel = async (req, res) => {
                 const empId = empIdCol && row[empIdCol] !== undefined && row[empIdCol] !== '' ? String(row[empIdCol]).trim() : null;
                 const name = nameCol && row[nameCol] ? String(row[nameCol]).trim() : null;
                 const email = emailCol && row[emailCol] ? String(row[emailCol]).trim() : null;
-                const department = deptCol && row[deptCol] ? String(row[deptCol]).trim() : 'General';
-                const designation = designCol && row[designCol] ? String(row[designCol]).trim() : 'Employee';
+                const department = deptCol && row[deptCol] ? String(row[deptCol]).trim() : 'Non Teaching';
+                const designation = designCol && row[designCol] ? String(row[designCol]).trim() : 'General';
                 const phone = phoneCol && row[phoneCol] ? String(row[phoneCol]).trim() : null;
                 const salary = salaryCol && row[salaryCol] ? Number(row[salaryCol]) || 0 : 0;
 
@@ -455,29 +472,13 @@ const uploadEmployeeExcel = async (req, res) => {
                 if (snoCol && (row[snoCol] === '' || row[snoCol] === undefined)) continue;
                 if (name && normalize(name) === 'total') continue;
                 
-                if (!name) {
-                    throw new Error('Missing required field: Name');
+                if (!empId || !name) {
+                    throw new Error('Missing required field(s): Emp ID and Name are required');
                 }
 
-                // Check if employee already exists (by empId, email, or name)
+                // Check if employee already exists by Emp ID only.
                 let existing = null;
-                
-                if (empId) {
-                    existing = await Employee.findOne({ empId: empId });
-                    if (!existing && !isNaN(Number(empId))) {
-                        existing = await Employee.findOne({ empId: Number(empId) });
-                    }
-                }
-                
-                if (!existing && email) {
-                    existing = await Employee.findOne({ email: email });
-                }
-                
-                if (!existing && name) {
-                    existing = await Employee.findOne({
-                        name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
-                    });
-                }
+                existing = await Employee.findOne({ empId: { $in: getEmpIdCandidates(empId) } });
 
                 // Also check if a User account with this username already exists
                 // (handles Mixed-type empId mismatch where Employee isn't found but User is)
@@ -492,7 +493,7 @@ const uploadEmployeeExcel = async (req, res) => {
                         row: headerRowIdx + index + 2,
                         name: name,
                         empId: empId || 'N/A',
-                        reason: `Already exists (${empId ? 'Emp.ID: ' + empId : email ? 'Email: ' + email : 'Name: ' + name})`
+                        reason: `Already exists (Emp.ID: ${empId})`
                     });
                     continue;
                 }
@@ -783,6 +784,82 @@ const adjustThrift = async (req, res) => {
         session.endSession();
 
         res.json({ message: 'Thrift updated successfully', employee });
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Mark employee inactive and settle thrift balance
+// @route   POST /api/admin/employees/:id/mark-inactive
+// @access  Private/Admin
+const markEmployeeInactive = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+        const { settlementAmount, remarks } = req.body;
+        const employee = await Employee.findById(req.params.id).session(session);
+
+        if (!employee) {
+            throw new Error('Employee not found');
+        }
+
+        if (employee.isActive === false) {
+            throw new Error('Employee is already inactive');
+        }
+
+        if (employee.activeLoan) {
+            throw new Error('Cannot mark inactive while employee has an active loan');
+        }
+
+        const oldBalance = Number(employee.thriftBalance || 0);
+        const payout = settlementAmount === undefined || settlementAmount === null || settlementAmount === ''
+            ? oldBalance
+            : Number(settlementAmount);
+
+        if (Number.isNaN(payout) || payout < 0) {
+            throw new Error('Settlement amount must be a valid non-negative number');
+        }
+
+        if (payout > oldBalance) {
+            throw new Error('Settlement amount cannot exceed current thrift balance');
+        }
+
+        employee.thriftBalance = Math.round((oldBalance - payout) * 100) / 100;
+        employee.thriftContribution = 0;
+        employee.isActive = false;
+        employee.inactiveAt = new Date();
+        employee.inactiveReason = remarks || 'Employee left organisation';
+        employee.thriftSettledAmount = Math.round(((employee.thriftSettledAmount || 0) + payout) * 100) / 100;
+
+        await employee.save({ session });
+
+        await AdjustmentHistory.create([{
+            employee: employee._id,
+            admin: req.user._id,
+            actionType: 'other',
+            targetField: 'employmentStatus',
+            oldValue: {
+                isActive: true,
+                thriftBalance: oldBalance
+            },
+            newValue: {
+                isActive: false,
+                thriftBalance: employee.thriftBalance,
+                settlementAmount: payout
+            },
+            remarks: remarks || `Marked inactive and settled thrift payout of ₹${payout}`
+        }], { session });
+
+        await session.commitTransaction();
+        session.endSession();
+
+        res.json({
+            message: `Employee marked inactive. Thrift payout settled: ₹${payout}`,
+            employee
+        });
     } catch (error) {
         await session.abortTransaction();
         session.endSession();
@@ -2209,15 +2286,28 @@ const notifyMonthlySms = async (req, res) => {
             });
         }
 
-        const { month, dividend = 0 } = req.body;
+        const { month, dividend = 0, employeeIds = [] } = req.body;
         if (!month) return res.status(400).json({ message: 'month is required (YYYY-MM)' });
 
-        const employees = await Employee.find({ phone: { $exists: true, $nin: [null, ''] } })
+        const hasEmployeeFilter = Array.isArray(employeeIds) && employeeIds.length > 0;
+        const employeeQuery = { phone: { $exists: true, $nin: [null, ''] } };
+        if (hasEmployeeFilter) {
+            employeeQuery._id = { $in: employeeIds };
+        }
+
+        const employees = await Employee.find(employeeQuery)
             .select('name phone thriftBalance guaranteeingLoans activeLoan')
             .populate('activeLoan', 'remainingBalance');
 
         if (employees.length === 0) {
-            return res.json({ message: 'No employees with a registered phone number found.', sent: 0, errors: [] });
+            return res.json({
+                message: hasEmployeeFilter
+                    ? 'No selected employees with a registered phone number found.'
+                    : 'No employees with a registered phone number found.',
+                sent: 0,
+                total: 0,
+                errors: []
+            });
         }
 
         // Fetch the latest transaction for the requested month for all employees at once
@@ -2396,6 +2486,7 @@ module.exports = {
     uploadEmployeeExcel,
     adjustSalary,
     adjustThrift,
+    markEmployeeInactive,
     adjustLoan,
     getAdjustmentHistory,
     getEmployeeTransactions,

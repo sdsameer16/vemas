@@ -62,6 +62,7 @@ mongoose.connect(process.env.MONGODB_URI)
 // Routes (to be imported)
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/admin/monthly', require('./routes/monthly'));
 app.use('/api/employee', require('./routes/employee'));
 app.use('/api/loans', require('./routes/loans'));
 

@@ -15,6 +15,15 @@ const employeeSchema = new mongoose.Schema({
     // Accumulated thrift balance
     thriftBalance: { type: Number, default: 0 },
 
+    // Employment activity status
+    isActive: { type: Boolean, default: true },
+    inactiveAt: { type: Date, default: null },
+    inactiveReason: { type: String, default: '' },
+    thriftSettledAmount: { type: Number, default: 0 },
+
+    // Internal Credit Score (CIBIL-like)
+    creditScore: { type: Number, default: 750, min: 300, max: 900 },
+
     // Optional status from Excel imports (when no Loan document exists)
     // Example values: 'Loan', 'No Loan'
     loanStatus: { type: String, default: '' },

@@ -57,6 +57,8 @@ const getDashboardSummary = async (req, res) => {
             employeeName: employee.name || '',
             empId: employee.empId || '',
             department: employee.department || '',
+            email: employee.email || '',
+            phone: employee.phone || '',
             panNumber: employee.panNumber || '',
             aadhaarNumber: employee.aadhaarNumber || '',
             // Salary Card
